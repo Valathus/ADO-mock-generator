@@ -1,0 +1,41 @@
+<configuration>
+
+    <property name="LOG_PATH" value="logs"/>
+    <property name="LOG_FILE" value="${LOG_PATH}/ado-mock-generator.log"/>
+
+    <!-- Rolling file appender -->
+    <appender name="ROLLING" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- Rotate daily and when size exceeds limit -->
+            <fileNamePattern>${LOG_PATH}/ado-mock-generator.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+
+            <!-- Max size per file -->
+            <maxFileSize>10MB</maxFileSize>
+
+            <!-- Keep 30 days -->
+            <maxHistory>7</maxHistory>
+
+            <!-- Total disk cap -->
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Console (optional) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="ROLLING"/>
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>

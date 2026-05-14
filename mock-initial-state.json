@@ -1,0 +1,70 @@
+{
+  "users" : [ {
+    "username" : "Arun",
+    "pat" : "<PAT_ARUN>",
+    "enabled" : true,
+    "descriptor" : null,
+    "id" : null
+  }, {
+    "username" : "Hyma",
+    "pat" : "<PAT_HYMA>",
+    "enabled" : true,
+    "descriptor" : null,
+    "id" : null
+  }, {
+    "username" : "Saikiran",
+    "pat" : "<PAT_SAIKIRAN>",
+    "enabled" : true,
+    "descriptor" : null,
+    "id" : null
+  }, {
+    "username" : "Sriman",
+    "pat" : "<PAT_SRIMAN>",
+    "enabled" : true,
+    "descriptor" : null,
+    "id" : null
+  }, {
+    "username" : "Priya",
+    "pat" : "<PAT_PRIYA>",
+    "enabled" : true,
+    "descriptor" : null,
+    "id" : null
+  }, {
+    "username" : "Supriya",
+    "pat" : "<PAT_SUPRIYA>",
+    "enabled" : true,
+    "descriptor" : null,
+    "id" : null
+  } ],
+  "repo" : {
+    "repoId" : "<REPO_ID>",
+    "repoName" : "<REPO_NAME>",
+    "pipeLineName" : "<PIPELINE_NAME>",
+    "defaultBranch" : "main",
+    "defaultBranchHead" : null,
+    "createdAt" : null,
+    "buildDefinitionId" : 0
+  },
+  "webhookEnabled" : false,
+  "admin" : {
+    "username" : "<ADMIN_USERNAME>",
+    "pat" : "<PAT_ADMIN>"
+  },
+  "collectionDetails" : {
+    "url" : "http://<YOUR_SERVER>/<COLLECTION>",
+    "projectName" : "<PROJECT_NAME>",
+    "projectId" : "<PROJECT_ID>",
+    "id" : "<COLLECTION_ID>",
+    "teams" : [ "<TEAM_1>", "<TEAM_2>" ],
+    "webhookURL" : "http://<YOUR_WEBHOOK_ENDPOINT>/ado/webhook"
+  },
+  "dataLoadConfig" : {
+    "windowDays" : 180,
+    "sprintDurationDays" : 14,
+    "sprintsPerPI" : 4,
+    "workItemsPerDay" : 5,
+    "repoActivitiesPerSprint" : 3,
+    "buildsPerSprint" : 1,
+    "currentSprintFillPercentage" : 60
+  }
+}

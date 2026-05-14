@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pandoc --version)",
+      "Bash(python3 -c \"import docx; print\\('python-docx available'\\)\")",
+      "Bash(python3 *)",
+      "Bash(xargs cat)",
+      "Bash(mvn compile *)",
+      "Bash(java -version)",
+      "Bash(/usr/libexec/java_home -V)",
+      "Bash(xargs -I{} basename {})",
+      "Bash(rsync *)"
+    ]
+  }
+}
