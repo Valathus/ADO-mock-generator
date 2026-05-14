@@ -296,6 +296,17 @@ public class WorkItemsCreationService {
 			tags = tags + "; mockRun:" + correlation;
 		}
 		patch.add(Map.of("op", "add", "path", "/fields/System.Tags", "value", tags));
+		patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.DueDate", "value",
+				pickDueDate(sprintStart, sprintDuration, i)));
+
+		if (workItemType.equals(categoryTypeMap.get(WorkItemCategory.RequirementCategory))
+				|| workItemType.equals(categoryTypeMap.get(WorkItemCategory.BugCategory))) {
+			patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.StoryPoints", "value",
+					pickStoryPoints(sprintNumber, i)));
+		} else if (workItemType.equals(categoryTypeMap.get(WorkItemCategory.TaskCategory))) {
+			patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.OriginalEstimate", "value",
+					pickTaskHours(sprintNumber, i)));
+		}
 
 		String uri = "/" + project + "/_apis/wit/workitems/$" + workItemType + "?api-version=" + apiVersion
 				+ "&bypassRules=true&suppressNotifications=true";
@@ -330,6 +341,8 @@ public class WorkItemsCreationService {
 				subPatch.add(Map.of("op", "add", "path", "/fields/System.AssignedTo", "value", subUser.username));
 				subPatch.add(Map.of("op", "add", "path", "/fields/System.CreatedDate", "value", createdDate));
 				subPatch.add(Map.of("op", "add", "path", "/fields/System.Tags", "value", tags));
+				subPatch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.OriginalEstimate", "value",
+						pickTaskHours(sprintNumber, i + t)));
 
 				// Parent link
 				subPatch.add(Map.of("op", "add", "path", "/relations/-", "value",
@@ -462,6 +475,23 @@ public class WorkItemsCreationService {
 		}
 
 		return out;
+	}
+
+	private static final int[] STORY_POINTS = { 1, 2, 3, 5, 8, 13 };
+	private static final int[] TASK_HOURS = { 2, 4, 4, 8, 8, 16 };
+
+	private int pickStoryPoints(int sprintNumber, int itemIndex) {
+		return STORY_POINTS[(sprintNumber * 31 + itemIndex) % STORY_POINTS.length];
+	}
+
+	private int pickTaskHours(int sprintNumber, int itemIndex) {
+		return TASK_HOURS[(sprintNumber * 31 + itemIndex) % TASK_HOURS.length];
+	}
+
+	private String pickDueDate(LocalDate sprintStart, int sprintDuration, int itemIndex) {
+		int daysIntoSprint = Math.min(sprintDuration - 1, (itemIndex % sprintDuration) + 2);
+		LocalDate dueDate = sprintStart.plusDays(Math.max(0, daysIntoSprint));
+		return dueDate.toString() + "T00:00:00.000Z";
 	}
 
 	/**

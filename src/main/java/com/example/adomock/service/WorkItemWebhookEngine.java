@@ -143,7 +143,7 @@ public class WorkItemWebhookEngine {
 		String uri = "/" + state.collectionDetails.projectName + "/_apis/wit/workitems/" + workItemId + "?api-version="
 				+ properties.getApiVersion();
 
-		adoClient.patchJsonPatch(pat, uri, patch);
+		patchWorkItemWithFallback(pat, uri, patch);
 	}
 
 	/*
@@ -193,7 +193,7 @@ public class WorkItemWebhookEngine {
 				+ "?api-version=" + properties.getApiVersion() + "&bypassRules=true&suppressNotifications=true";
 
 		try {
-			JsonNode created = adoClient.postJsonPatch(pat, uri, patch);
+			JsonNode created = postWorkItemWithFallback(pat, uri, patch);
 			String id = created.path("id").asText(null);
 			if (id != null && !id.isBlank()) {
 				// Add to current sprint bucket if we can resolve sprintNumber from iteration
@@ -204,6 +204,33 @@ public class WorkItemWebhookEngine {
 		} catch (Exception ignored) {
 			// Self-healing / best-effort: creation failure just means no event this time.
 		}
+	}
+
+	private JsonNode postWorkItemWithFallback(String pat, String uri, List<Map<String, Object>> patch) {
+		try {
+			return adoClient.postJsonPatch(pat, uri, patch);
+		} catch (RuntimeException ex) {
+			if (!isUnauthorized(ex)) {
+				throw ex;
+			}
+			return adoClient.postJsonPatch(adminIdentityProvider.getAdmin().pat, uri, patch);
+		}
+	}
+
+	private void patchWorkItemWithFallback(String pat, String uri, List<Map<String, Object>> patch) {
+		try {
+			adoClient.patchJsonPatch(pat, uri, patch);
+		} catch (RuntimeException ex) {
+			if (!isUnauthorized(ex)) {
+				throw ex;
+			}
+			adoClient.patchJsonPatch(adminIdentityProvider.getAdmin().pat, uri, patch);
+		}
+	}
+
+	private boolean isUnauthorized(RuntimeException ex) {
+		String message = ex.getMessage();
+		return message != null && message.contains("401 UNAUTHORIZED");
 	}
 
 	private void addCreatedWorkItemToBestSprintBucket(MockState state, String id) {

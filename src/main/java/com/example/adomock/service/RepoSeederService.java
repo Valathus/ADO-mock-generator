@@ -85,10 +85,10 @@ public class RepoSeederService {
 
 		boolean didWork = false;
 
-		JsonNode repoResponse = resolveRepo(pat, project, apiVersion, repoName);
-		String repoId = repoResponse.path("id").asText(null);
+		String repoId = (state.repo.repoId != null && !state.repo.repoId.isBlank())
+				? state.repo.repoId
+				: resolveRepo(pat, project, apiVersion, repoName).path("id").asText(null);
 		if (repoId == null || repoId.isBlank()) {
-			// If repo resolution failed, don't mutate state.
 			return false;
 		}
 

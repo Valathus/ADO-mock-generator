@@ -84,39 +84,56 @@ public class AdoRestClient {
 	public JsonNode get(String pat, String uri) {
 		String patOwner = patOwnerLabel(pat);
 		log.debug("ADO GET {} user={}", uri, patOwner);
-		return createClient(pat).get().uri(uri).retrieve()
+		JsonNode result = createClient(pat).get().uri(uri).retrieve()
 				.onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
-						.map(body -> new RuntimeException(
-								"ADO GET Error: " + response.statusCode() + " user=" + patOwner + " -> " + body)))
+						.defaultIfEmpty("")
+						.flatMap(body -> reactor.core.publisher.Mono.error(new RuntimeException(
+								"ADO GET Error: " + response.statusCode() + " user=" + patOwner + " -> " + body))))
 				.bodyToMono(JsonNode.class).retryWhen(Retry.fixedDelay(properties.getRetryMaxAttempts(),
 						Duration.ofMillis(properties.getRetryBackoffMs())))
 				.block();
+		if (result == null) {
+			throw new RuntimeException("ADO GET returned empty response for " + uri + " user=" + patOwner);
+		}
+		return result;
 	}
 
 	public JsonNode post(String pat, String uri, Object body) {
 		String patOwner = patOwnerLabel(pat);
 		log.debug("ADO POST {} user={}", uri, patOwner);
-		return createClient(pat).post().uri(uri).contentType(MediaType.APPLICATION_JSON).bodyValue(body).retrieve()
+		JsonNode result = createClient(pat).post().uri(uri).contentType(MediaType.APPLICATION_JSON).bodyValue(body)
+				.retrieve()
 				.onStatus(status -> status.isError(),
 						response -> response.bodyToMono(String.class)
-								.map(errorBody -> new RuntimeException(
-										"ADO POST Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody)))
+								.defaultIfEmpty("")
+								.flatMap(errorBody -> reactor.core.publisher.Mono.error(new RuntimeException(
+										"ADO POST Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody))))
 				.bodyToMono(JsonNode.class).retryWhen(Retry.fixedDelay(properties.getRetryMaxAttempts(),
 						Duration.ofMillis(properties.getRetryBackoffMs())))
 				.block();
+		if (result == null) {
+			throw new RuntimeException("ADO POST returned empty response for " + uri + " user=" + patOwner);
+		}
+		return result;
 	}
 
 	public JsonNode patch(String pat, String uri, Object body) {
 		String patOwner = patOwnerLabel(pat);
 		log.debug("ADO PATCH {} user={}", uri, patOwner);
-		return createClient(pat).patch().uri(uri).contentType(MediaType.APPLICATION_JSON).bodyValue(body).retrieve()
+		JsonNode result = createClient(pat).patch().uri(uri).contentType(MediaType.APPLICATION_JSON).bodyValue(body)
+				.retrieve()
 				.onStatus(status -> status.isError(),
 						response -> response.bodyToMono(String.class)
-								.map(errorBody -> new RuntimeException(
-										"ADO PATCH Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody)))
+								.defaultIfEmpty("")
+								.flatMap(errorBody -> reactor.core.publisher.Mono.error(new RuntimeException(
+										"ADO PATCH Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody))))
 				.bodyToMono(JsonNode.class).retryWhen(Retry.fixedDelay(properties.getRetryMaxAttempts(),
 						Duration.ofMillis(properties.getRetryBackoffMs())))
 				.block();
+		if (result == null) {
+			throw new RuntimeException("ADO PATCH returned empty response for " + uri + " user=" + patOwner);
+		}
+		return result;
 	}
 
 	public JsonNode put(String pat, String uri, Object body) {
@@ -145,29 +162,39 @@ public class AdoRestClient {
 	public JsonNode postJsonPatch(String pat, String uri, Object body) {
 		String patOwner = patOwnerLabel(pat);
 		log.debug("ADO POST JSON PATCH {} user={}", uri, patOwner);
-		return createClient(pat).post().uri(uri).contentType(MediaType.valueOf("application/json-patch+json"))
+		JsonNode result = createClient(pat).post().uri(uri).contentType(MediaType.valueOf("application/json-patch+json"))
 				.bodyValue(body).retrieve()
 				.onStatus(status -> status.isError(),
 						response -> response.bodyToMono(String.class)
-								.map(errorBody -> new RuntimeException(
-										"ADO JSON PATCH POST Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody)))
+								.defaultIfEmpty("")
+								.flatMap(errorBody -> reactor.core.publisher.Mono.error(new RuntimeException(
+										"ADO JSON PATCH POST Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody))))
 				.bodyToMono(JsonNode.class).retryWhen(Retry.fixedDelay(properties.getRetryMaxAttempts(),
 						Duration.ofMillis(properties.getRetryBackoffMs())))
 				.block();
+		if (result == null) {
+			throw new RuntimeException("ADO postJsonPatch returned empty response for " + uri + " user=" + patOwner);
+		}
+		return result;
 	}
 
 	public JsonNode patchJsonPatch(String pat, String uri, Object body) {
 		String patOwner = patOwnerLabel(pat);
 		log.debug("ADO PATCH JSON PATCH {} user={}", uri, patOwner);
-		return createClient(pat).patch().uri(uri).contentType(MediaType.valueOf("application/json-patch+json"))
+		JsonNode result = createClient(pat).patch().uri(uri).contentType(MediaType.valueOf("application/json-patch+json"))
 				.bodyValue(body).retrieve()
 				.onStatus(status -> status.isError(),
 						response -> response.bodyToMono(String.class)
-								.map(errorBody -> new RuntimeException(
-										"ADO JSON PATCH Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody)))
+								.defaultIfEmpty("")
+								.flatMap(errorBody -> reactor.core.publisher.Mono.error(new RuntimeException(
+										"ADO JSON PATCH Error: " + response.statusCode() + " user=" + patOwner + " -> " + errorBody))))
 				.bodyToMono(JsonNode.class).retryWhen(Retry.fixedDelay(properties.getRetryMaxAttempts(),
 						Duration.ofMillis(properties.getRetryBackoffMs())))
 				.block();
+		if (result == null) {
+			throw new RuntimeException("ADO patchJsonPatch returned empty response for " + uri + " user=" + patOwner);
+		}
+		return result;
 	}
 
 }

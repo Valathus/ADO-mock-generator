@@ -226,6 +226,11 @@ public class IterationService {
 
 		existingPaths.add(fullPath);
 
+		if (response == null || response.path("identifier").asText().isEmpty()) {
+			String id = fetchIdentifier(pat, project, parent, name, apiVersion, state);
+			return new CreateResult(id, true);
+		}
+
 		return new CreateResult(response.path("identifier").asText(), true);
 	}
 
@@ -367,7 +372,7 @@ public class IterationService {
 		String iterationId = node.path("identifier").asText();
 
 		for (String team : state.collectionDetails.teams) {
-			String teamUri = "/" + project + "/" + encode(team) + "/_apis/work/teamsettings/iterations?api-version="
+			String teamUri = "/" + project + "/" + team + "/_apis/work/teamsettings/iterations?api-version="
 					+ apiVersion;
 			adoClient.post(pat, teamUri, Map.of("id", iterationId));
 		}
