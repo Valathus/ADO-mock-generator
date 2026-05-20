@@ -110,6 +110,8 @@ public class WorkItemWebhookEngine {
 
 		List<Map<String, Object>> patch = new ArrayList<>();
 
+		boolean dueDateHandled = false;
+
 		int threshold = 0;
 		if (roll < (threshold += CHANGE_STATE_PCT)) {
 			changeState(state, workItemId, pat, patch, random);
@@ -127,13 +129,20 @@ public class WorkItemWebhookEngine {
 			addTag(state, workItemId, pat, patch, random, correlationId);
 
 		} else if (roll < (threshold += SET_DUE_DATE_PCT)) {
-			setDueDate(state, patch, random);
+			// setDueDate handles both "add if missing" and "change if present" internally
+			setDueDate(state, workItemId, pat, patch, random);
+			dueDateHandled = true;
 
 		} else if (roll < (threshold += ADD_BLOCKED_BY_PCT)) {
 			addBlockedByLink(state, workItemId, patch, random);
 
 		} else {
 			addLink(state, workItemId, patch, random);
+		}
+
+		// For every non-setDueDate event: ensure due date is present (backfill if seeder missed it)
+		if (!dueDateHandled) {
+			ensureDueDateIfMissing(state, workItemId, pat, patch, random);
 		}
 
 		if (patch.isEmpty())
@@ -344,14 +353,51 @@ public class WorkItemWebhookEngine {
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value", "Tag changed via webhook simulation"));
 	}
 
-	private void setDueDate(MockState state, List<Map<String, Object>> patch, Random random) {
+	private void ensureDueDateIfMissing(MockState state, String workItemId, String pat,
+			List<Map<String, Object>> patch, Random random) {
+
+		String getUri = "/" + state.collectionDetails.projectName + "/_apis/wit/workitems/" + workItemId
+				+ "?api-version=" + properties.getApiVersion();
+
+		try {
+			JsonNode wi = adoClient.get(pat, getUri);
+			String existing = wi.path("fields").path("Microsoft.VSTS.Scheduling.DueDate").asText("");
+			if (!existing.isBlank())
+				return; // already has a due date, nothing to do
+
+			int daysAhead = 3 + random.nextInt(58);
+			LocalDate dueDate = LocalDate.now().plusDays(daysAhead);
+			String formatted = dueDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "T00:00:00.000Z";
+			patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.DueDate", "value", formatted));
+		} catch (Exception ignored) {
+			// best-effort: skip if GET fails
+		}
+	}
+
+	private void setDueDate(MockState state, String workItemId, String pat, List<Map<String, Object>> patch,
+			Random random) {
+
+		String getUri = "/" + state.collectionDetails.projectName + "/_apis/wit/workitems/" + workItemId
+				+ "?api-version=" + properties.getApiVersion();
+
+		boolean hasDueDate = false;
+		try {
+			JsonNode wi = adoClient.get(pat, getUri);
+			String existing = wi.path("fields").path("Microsoft.VSTS.Scheduling.DueDate").asText("");
+			hasDueDate = !existing.isBlank();
+		} catch (Exception ignored) {
+			// fall through: treat as no due date
+		}
+
 		int daysAhead = 3 + random.nextInt(58);
 		LocalDate dueDate = LocalDate.now().plusDays(daysAhead);
 		String formatted = dueDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "T00:00:00.000Z";
 
 		patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.DueDate", "value", formatted));
+
+		String action = hasDueDate ? "changed to" : "added as";
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value",
-				"Due date set to " + dueDate + " via webhook simulation"));
+				"Due date " + action + " " + dueDate + " via webhook simulation"));
 	}
 
 	private void addBlockedByLink(MockState state, String workItemId, List<Map<String, Object>> patch, Random random) {

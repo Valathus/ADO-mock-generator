@@ -32,18 +32,6 @@ public class MutationExecutor {
 	private final ReleaseWebhookEngine releaseWebhookEngine;
 	private final TestRunWebhookEngine testRunWebhookEngine;
 
-	@Value("${mutations.perHour:10}")
-	private int mutationsPerHour;
-
-	@Value("${mutations.mix.workItemUpdatePct:50}")
-	private int workItemUpdatePct;
-
-	@Value("${mutations.mix.repoWorkflowPct:30}")
-	private int repoWorkflowPct;
-
-	@Value("${mutations.mix.pipelinePct:20}")
-	private int pipelinePct;
-
 	@Value("${mock.mutation.enabled:true}")
 	private boolean mutationEnabled;
 
@@ -68,11 +56,6 @@ public class MutationExecutor {
 
 	public void runCycle() {
 
-		int totalPct = workItemUpdatePct + repoWorkflowPct + pipelinePct;
-		if (totalPct != 100) {
-			log.warn("Mutation mix percentages do not sum to 100. Current total={}", totalPct);
-		}
-
 		MockState state = repository.load();
 
 		if (!state.webhookEnabled) {
@@ -85,13 +68,12 @@ public class MutationExecutor {
 			return;
 		}
 
-		// 1) Keep iterations/sprints fresh + extend window if needed
+		// Keep iterations/sprints fresh + extend window if needed
 		boolean changed = iterationWebhookEngine.tickAndMaybeSeed(state);
 		if (changed) {
 			repository.save(state);
 		}
 
-		// Validate iteration structure
 		if (state.programIterations == null || state.programIterations.isEmpty()) {
 			log.warn("No programIterations available. Skipping mutation cycle.");
 			return;
@@ -102,15 +84,21 @@ public class MutationExecutor {
 			return;
 		}
 
-		// Repo/pipeline mutations require repo presence
+		MockState.WebhookMutationConfig cfg = state.webhookMutationConfig != null
+				? state.webhookMutationConfig
+				: new MockState.WebhookMutationConfig();
+
+		int wiCount = Math.max(0, cfg.workItemsPerCycle);
+		int prCount = Math.max(0, cfg.pullRequestsPerCycle);
+		int buildCount = Math.max(0, cfg.buildsPerCycle);
+
 		boolean repoReady = (state.repo != null && state.repo.repoId != null);
 
-		// Correlation for downstream webhook correlation
 		String batchId = UUID.randomUUID().toString();
 		Random random = new Random(randomSeed ^ batchId.hashCode());
 
-		log.info("Starting mutation cycle | batchId={} | mutationsPerHour={} | currentSprint={}", batchId,
-				mutationsPerHour, state.currentSprintNumber);
+		log.info("Starting mutation cycle | batchId={} | workItems={} pullRequests={} builds={} | currentSprint={}",
+				batchId, wiCount, prCount, buildCount, state.currentSprintNumber);
 
 		int success = 0;
 		int failed = 0;
@@ -120,81 +108,91 @@ public class MutationExecutor {
 		if (state.webhookMutationState == null) {
 			state.webhookMutationState = new MockState.WebhookMutationState();
 		}
-
 		state.webhookMutationState.lastCycleStartedAt = java.time.Instant.now();
 
-		for (int i = 1; i <= mutationsPerHour; i++) {
-			String correlation = "mockRun:" + batchId + ":" + i;
-
+		// ── Work items ──────────────────────────────────────────────────
+		for (int i = 0; i < wiCount; i++) {
+			String correlation = "mockRun:" + batchId + ":wi:" + i;
 			try {
-				int roll = random.nextInt(100);
-
-				if (roll < workItemUpdatePct) {
-					String workItemId = pickRandomWorkItemIdFromCurrentOrRecentSprint(state, random);
-					if (workItemId == null) {
-						log.warn("No work item found to mutate. correlation={}", correlation);
-					} else {
-						log.info("mutating started for boards {}", workItemId);
-						workItemWebhookEngine.runWebhookUpdate(workItemId, correlation, random);
-						log.info("mutating completed for boards {}", workItemId);
-					}
-
-				} else if (roll < workItemUpdatePct + repoWorkflowPct) {
-					if (!repoReady) {
-						log.warn("Repo not available; skipping repo workflow mutation. correlation={}", correlation);
-					} else {
-						// 15% of repo-slot goes to TFVC checkin if enabled, rest to Git workflow
-						if (tfvcWebhookEngine.isEnabled() && random.nextInt(100) < 15) {
-							log.info("mutating started for tfvc");
-							tfvcWebhookEngine.runCheckin(correlation, random);
-							log.info("mutating completed for tfvc");
-						} else {
-							log.info("mutating started for repos");
-							repoWorkflowEngine.runWebhookCycle(correlation, random);
-							log.info("mutating completed for repos");
-						}
-					}
-
+				String workItemId = pickRandomWorkItemIdFromCurrentOrRecentSprint(state, random);
+				if (workItemId == null) {
+					log.warn("No work item found to mutate. correlation={}", correlation);
 				} else {
-					if (!repoReady) {
-						log.warn("Repo not available; skipping pipeline mutation. correlation={}", correlation);
-					} else {
-						// Pipeline slot: 60% build, 20% release (if enabled), 20% testrun (if enabled)
-						int pipelineRoll = random.nextInt(100);
-						if (pipelineRoll < 60 || (!releaseWebhookEngine.isEnabled() && !testRunWebhookEngine.isEnabled())) {
-							String workItemId = pickRandomWorkItemIdFromCurrentOrRecentSprint(state, random);
-							if (workItemId == null) {
-								log.warn("No work item found for pipeline link. correlation={}", correlation);
-							} else {
-								log.info("mutating started for pipeline");
-								pipelineWebhookEngine.runPipelineWebhook(workItemId, correlation);
-								log.info("mutating completed for pipeline");
-							}
-						} else if (pipelineRoll < 80 && releaseWebhookEngine.isEnabled()) {
-							log.info("mutating started for release");
-							releaseWebhookEngine.runReleaseWebhook(correlation, random);
-							log.info("mutating completed for release");
-						} else if (testRunWebhookEngine.isEnabled()) {
-							log.info("mutating started for testrun");
-							testRunWebhookEngine.runTestRunWebhook(correlation, random);
-							log.info("mutating completed for testrun");
-						} else {
-							String workItemId = pickRandomWorkItemIdFromCurrentOrRecentSprint(state, random);
-							if (workItemId != null) {
-								pipelineWebhookEngine.runPipelineWebhook(workItemId, correlation);
-							}
-						}
-					}
+					log.info("mutating started for boards {}", workItemId);
+					workItemWebhookEngine.runWebhookUpdate(workItemId, correlation, random);
+					log.info("mutating completed for boards {}", workItemId);
 				}
-
 				success++;
 				state.webhookMutationState.totalActions++;
-
 			} catch (Exception ex) {
 				failed++;
 				log.error("Mutation action failed | correlation={} | err={}", correlation, ex.getMessage(), ex);
 			}
 		}
+
+		// ── Pull requests / repo workflow ────────────────────────────────
+		for (int i = 0; i < prCount; i++) {
+			String correlation = "mockRun:" + batchId + ":pr:" + i;
+			try {
+				if (!repoReady) {
+					log.warn("Repo not available; skipping repo workflow mutation. correlation={}", correlation);
+				} else if (tfvcWebhookEngine.isEnabled() && random.nextInt(100) < 15) {
+					log.info("mutating started for tfvc");
+					tfvcWebhookEngine.runCheckin(correlation, random);
+					log.info("mutating completed for tfvc");
+				} else {
+					log.info("mutating started for repos");
+					repoWorkflowEngine.runWebhookCycle(correlation, random);
+					log.info("mutating completed for repos");
+				}
+				success++;
+				state.webhookMutationState.totalActions++;
+			} catch (Exception ex) {
+				failed++;
+				log.error("Mutation action failed | correlation={} | err={}", correlation, ex.getMessage(), ex);
+			}
+		}
+
+		// ── Builds / pipeline ────────────────────────────────────────────
+		for (int i = 0; i < buildCount; i++) {
+			String correlation = "mockRun:" + batchId + ":build:" + i;
+			try {
+				if (!repoReady) {
+					log.warn("Repo not available; skipping pipeline mutation. correlation={}", correlation);
+				} else {
+					int pipelineRoll = random.nextInt(100);
+					if (pipelineRoll < 60 || (!releaseWebhookEngine.isEnabled() && !testRunWebhookEngine.isEnabled())) {
+						String workItemId = pickRandomWorkItemIdFromCurrentOrRecentSprint(state, random);
+						if (workItemId == null) {
+							log.warn("No work item found for pipeline link. correlation={}", correlation);
+						} else {
+							log.info("mutating started for pipeline");
+							pipelineWebhookEngine.runPipelineWebhook(workItemId, correlation);
+							log.info("mutating completed for pipeline");
+						}
+					} else if (pipelineRoll < 80 && releaseWebhookEngine.isEnabled()) {
+						log.info("mutating started for release");
+						releaseWebhookEngine.runReleaseWebhook(correlation, random);
+						log.info("mutating completed for release");
+					} else if (testRunWebhookEngine.isEnabled()) {
+						log.info("mutating started for testrun");
+						testRunWebhookEngine.runTestRunWebhook(correlation, random);
+						log.info("mutating completed for testrun");
+					} else {
+						String workItemId = pickRandomWorkItemIdFromCurrentOrRecentSprint(state, random);
+						if (workItemId != null) {
+							pipelineWebhookEngine.runPipelineWebhook(workItemId, correlation);
+						}
+					}
+				}
+				success++;
+				state.webhookMutationState.totalActions++;
+			} catch (Exception ex) {
+				failed++;
+				log.error("Mutation action failed | correlation={} | err={}", correlation, ex.getMessage(), ex);
+			}
+		}
+
 		state.webhookMutationState.totalCycles++;
 		state.webhookMutationState.lastCycleCompletedAt = java.time.Instant.now();
 		repository.save(state);

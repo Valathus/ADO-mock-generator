@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -491,7 +492,7 @@ public class WorkItemsCreationService {
 	private String pickDueDate(LocalDate sprintStart, int sprintDuration, int itemIndex) {
 		int daysIntoSprint = Math.min(sprintDuration - 1, (itemIndex % sprintDuration) + 2);
 		LocalDate dueDate = sprintStart.plusDays(Math.max(0, daysIntoSprint));
-		return dueDate.toString() + "T00:00:00.000Z";
+		return dueDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "T00:00:00.000Z";
 	}
 
 	/**

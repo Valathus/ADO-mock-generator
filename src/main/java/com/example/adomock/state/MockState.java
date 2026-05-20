@@ -41,6 +41,7 @@ public class MockState {
 	public CollectionDetails collectionDetails;
 	public DataLoadConfig dataLoadConfig;
 	public WebhookMutationState webhookMutationState = new WebhookMutationState();
+	public WebhookMutationConfig webhookMutationConfig = new WebhookMutationConfig();
 
 	// ------------------------------------------------
 	// TFVC (optional — populate if using TFVC repos)
@@ -166,5 +167,11 @@ public class MockState {
 	    public long totalActions;
 	    public java.time.Instant lastCycleStartedAt;
 	    public java.time.Instant lastCycleCompletedAt;
+	}
+
+	public static class WebhookMutationConfig {
+	    public int workItemsPerCycle = 5;
+	    public int pullRequestsPerCycle = 3;
+	    public int buildsPerCycle = 2;
 	}
 }
