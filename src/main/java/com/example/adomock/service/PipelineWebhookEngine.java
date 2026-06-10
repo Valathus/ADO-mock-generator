@@ -142,6 +142,8 @@ public class PipelineWebhookEngine {
 		if (buildId == null || buildId.isBlank()) {
 			throw new IllegalStateException("Build queue failed");
 		}
+
+		log.info("user={} | action=queueBuild | buildId={} | scenario={} | branch={}", user.username, buildId, scenario, branch);
 	}
 
 	private void cancelRandomRunningBuild(ThreadLocalRandom random) {
@@ -167,14 +169,12 @@ public class PipelineWebhookEngine {
 			JsonNode builds = response.path("value");
 
 			if (builds.isEmpty()) {
-				log.info("No running builds available to cancel");
+				log.info("user={} | action=cancelBuild | status=noRunningBuilds", user.username);
 				return;
 			}
 
 			int index = random.nextInt(builds.size());
 			String buildId = builds.get(index).path("id").asText();
-
-			log.info("Cancelling running build {}", buildId);
 
 			Map<String, Object> cancelBody = Map.of("status", "cancelling");
 
@@ -183,8 +183,10 @@ public class PipelineWebhookEngine {
 
 			adoClient.patch(pat, cancelUri, cancelBody);
 
+			log.info("user={} | action=cancelBuild | buildId={}", user.username, buildId);
+
 		} catch (Exception e) {
-			log.error("Failed to cancel running build", e);
+			log.error("user={} | action=cancelBuild | error={}", user.username, e.getMessage(), e);
 		}
 	}
 }
