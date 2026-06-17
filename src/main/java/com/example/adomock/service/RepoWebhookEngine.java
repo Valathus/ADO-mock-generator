@@ -48,12 +48,13 @@ public class RepoWebhookEngine {
 			if (state == null || state.users == null) return;
 			for (MockState.User u : state.users) {
 				if (u != null && username.equals(u.username)) {
+					String oldId = u.id;
 					u.id = null;
-					repository.save(state);
 					String newId = identityResolverService.resolveIdentityDescriptor(u);
 					if (newId != null) {
 						log.info("user={} | action=refreshIdentity | newId={}", username, newId);
 					} else {
+						u.id = oldId;
 						log.warn("user={} | action=refreshIdentity | identity not found in ADO", username);
 					}
 					return;

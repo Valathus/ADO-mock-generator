@@ -10,6 +10,8 @@ import com.example.adomock.state.FileStateRepository;
 import com.example.adomock.state.MockState;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import jakarta.annotation.PostConstruct;
+
 @Service
 public class IdentityResolverService {
 
@@ -23,6 +25,17 @@ public class IdentityResolverService {
 		this.repository = repository;
 		this.adoClient = adoClient;
 		this.properties = properties;
+	}
+
+	@PostConstruct
+	public void resolveAllOnStartup() {
+		MockState state = repository.load();
+		if (state == null || state.users == null) return;
+		for (MockState.User user : state.users) {
+			if (user != null && user.enabled) {
+				resolveIdentityDescriptor(user);
+			}
+		}
 	}
 
 	public String resolveIdentityDescriptor(MockState.User user) {
