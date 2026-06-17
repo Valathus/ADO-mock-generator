@@ -28,16 +28,40 @@ public class RepoWebhookEngine {
 	private final UserIdentityProvider identityProvider;
 	private final AdoRestClient adoClient;
 	private final AdoProperties properties;
+	private final IdentityResolverService identityResolverService;
 
 	private static final String DEV_BRANCH = "dev";
 	private static final String ZERO = "0000000000000000000000000000000000000000";
 
 	public RepoWebhookEngine(FileStateRepository repository, UserIdentityProvider identityProvider,
-			AdoRestClient adoClient, AdoProperties properties) {
+			AdoRestClient adoClient, AdoProperties properties, IdentityResolverService identityResolverService) {
 		this.repository = repository;
 		this.identityProvider = identityProvider;
 		this.adoClient = adoClient;
 		this.properties = properties;
+		this.identityResolverService = identityResolverService;
+	}
+
+	private void refreshUserIdentity(String username) {
+		try {
+			MockState state = repository.load();
+			if (state == null || state.users == null) return;
+			for (MockState.User u : state.users) {
+				if (u != null && username.equals(u.username)) {
+					u.id = null;
+					repository.save(state);
+					String newId = identityResolverService.resolveIdentityDescriptor(u);
+					if (newId != null) {
+						log.info("user={} | action=refreshIdentity | newId={}", username, newId);
+					} else {
+						log.warn("user={} | action=refreshIdentity | identity not found in ADO", username);
+					}
+					return;
+				}
+			}
+		} catch (Exception ex) {
+			log.warn("user={} | action=refreshIdentity | error={}", username, ex.getMessage());
+		}
 	}
 
 	public void runWebhookCycle(String correlationId, Random random) {
@@ -235,7 +259,11 @@ public class RepoWebhookEngine {
 			resp = adoClient.get(pat, uri);
 		} catch (Exception ex) {
 			Throwable root = ex.getCause() != null ? ex.getCause() : ex;
-			log.error("user={} | action=mutatePR | error={}", username, root.getMessage());
+			String msg = root.getMessage();
+			if (msg != null && msg.contains("TF401188")) {
+				refreshUserIdentity(username);
+			}
+			log.warn("user={} | action=mutatePR | error={}", username, msg);
 			return;
 		}
 
@@ -357,7 +385,18 @@ public class RepoWebhookEngine {
 				+ encodeQuery(sourceRef) + "&searchCriteria.targetRefName=" + encodeQuery(targetRef) + "&api-version="
 				+ apiVersion;
 
-		JsonNode existing = adoClient.get(pat, search);
+		JsonNode existing;
+		try {
+			existing = adoClient.get(pat, search);
+		} catch (Exception ex) {
+			Throwable root = ex.getCause() != null ? ex.getCause() : ex;
+			String msg = root.getMessage();
+			if (msg != null && msg.contains("TF401188")) {
+				refreshUserIdentity(username);
+			}
+			log.warn("user={} | action=createPR | source={} | target={} | skipped existing-check | error={}", username, sourceRef, targetRef, msg);
+			return null;
+		}
 		if (existing != null && existing.has("value") && existing.path("value").size() > 0) {
 			int existingPrId = existing.path("value").get(0).path("pullRequestId").asInt();
 			log.info("user={} | action=createPR | prId={} | status=alreadyExists | source={} | target={}", username, existingPrId, sourceRef, targetRef);
@@ -407,7 +446,11 @@ public class RepoWebhookEngine {
 			resp = adoClient.get(pat, uri);
 		} catch (Exception ex) {
 			Throwable root = ex.getCause() != null ? ex.getCause() : ex;
-			log.error("user={} | action=promote | source={} | target={} | error={}", username, source, target, root.getMessage());
+			String msg = root.getMessage();
+			if (msg != null && msg.contains("TF401188")) {
+				refreshUserIdentity(username);
+			}
+			log.warn("user={} | action=promote | source={} | target={} | error={}", username, source, target, msg);
 			return;
 		}
 
@@ -465,9 +508,12 @@ public class RepoWebhookEngine {
 			return;
 		}
 
-		Map<String, Object> completeBody = Map.of("status", "completed", "lastMergeSourceCommit",
-				Map.of("commitId", lastSourceCommit), "completionOptions",
-				Map.of("deleteSourceBranch", deleteSourceBranch, "mergeStrategy", "noFastForward"));
+		String mergeStrategy = prDetails.path("completionOptions").path("mergeStrategy").asText("noFastForward");
+
+		Map<String, Object> completeBody = new HashMap<>();
+		completeBody.put("status", "completed");
+		completeBody.put("lastMergeSourceCommit", Map.of("commitId", lastSourceCommit));
+		completeBody.put("completionOptions", Map.of("deleteSourceBranch", deleteSourceBranch, "mergeStrategy", mergeStrategy));
 
 		String patchUri = "/" + project + "/_apis/git/repositories/" + repoId + "/pullrequests/" + prId
 				+ "?api-version=" + apiVersion;
@@ -477,7 +523,29 @@ public class RepoWebhookEngine {
 			log.info("user={} | action=completePR | prId={} | mergeCommit={}", username, prId, lastSourceCommit);
 		} catch (Exception ex) {
 			Throwable root = ex.getCause() != null ? ex.getCause() : ex;
-			log.error("user={} | action=completePR | prId={} | error={}", username, prId, root.getMessage());
+			String msg = root.getMessage();
+			if (msg != null && msg.contains("GitPullRequestUpdateRejectedByPolicyException")) {
+				Map<String, Object> bypassOptions = new HashMap<>();
+				bypassOptions.put("deleteSourceBranch", deleteSourceBranch);
+				bypassOptions.put("mergeStrategy", mergeStrategy);
+				bypassOptions.put("bypassPolicy", true);
+				bypassOptions.put("bypassReason", "Mock engine: bypassing unsatisfied policies");
+
+				Map<String, Object> bypassBody = new HashMap<>();
+				bypassBody.put("status", "completed");
+				bypassBody.put("lastMergeSourceCommit", Map.of("commitId", lastSourceCommit));
+				bypassBody.put("completionOptions", bypassOptions);
+
+				try {
+					adoClient.patch(pat, patchUri, bypassBody);
+					log.info("user={} | action=completePR | prId={} | bypassPolicy=true | mergeStrategy={}", username, prId, mergeStrategy);
+				} catch (Exception retryEx) {
+					Throwable retryRoot = retryEx.getCause() != null ? retryEx.getCause() : retryEx;
+					log.warn("user={} | action=completePR | prId={} | bypass failed | error={}", username, prId, retryRoot.getMessage());
+				}
+			} else {
+				log.warn("user={} | action=completePR | prId={} | error={}", username, prId, msg);
+			}
 		}
 	}
 
@@ -529,8 +597,7 @@ public class RepoWebhookEngine {
 				log.info("user={} | action=addReviewer | prId={} | reviewerId={} | reviewer={}", username, prId, reviewer.id, reviewer.username);
 			} catch (Exception ex) {
 				Throwable root = ex.getCause() != null ? ex.getCause() : ex;
-				log.error("user={} | action=addReviewer | prId={} | reviewerId={} | error={}", username, prId, reviewer.id, root.getMessage());
-				return;
+				log.warn("user={} | action=addReviewer | prId={} | reviewerId={} | error={}", username, prId, reviewer.id, root.getMessage());
 			}
 		}
 	}

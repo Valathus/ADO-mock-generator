@@ -135,12 +135,20 @@ public class PipelineWebhookEngine {
 		String uri = "/" + state.collectionDetails.projectName + "/_apis/build/builds?api-version="
 				+ properties.getApiVersion();
 
-		JsonNode response = adoClient.post(pat, uri, body);
+		JsonNode response;
+		try {
+			response = adoClient.post(pat, uri, body);
+		} catch (Exception ex) {
+			Throwable root = ex.getCause() != null ? ex.getCause() : ex;
+			log.warn("user={} | action=queueBuild | scenario={} | branch={} | error={}", user.username, scenario, branch, root.getMessage());
+			return;
+		}
 
 		String buildId = response.path("id").asText(null);
 
 		if (buildId == null || buildId.isBlank()) {
-			throw new IllegalStateException("Build queue failed");
+			log.warn("user={} | action=queueBuild | scenario={} | branch={} | error=empty buildId in response", user.username, scenario, branch);
+			return;
 		}
 
 		log.info("user={} | action=queueBuild | buildId={} | scenario={} | branch={}", user.username, buildId, scenario, branch);
