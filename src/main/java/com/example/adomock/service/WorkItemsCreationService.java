@@ -316,7 +316,8 @@ public class WorkItemsCreationService {
 		try {
 			created = adoClient.postJsonPatch(pat, uri, patch);
 		} catch (Exception e) {
-			log.error(e.getMessage());
+			Throwable cause = e.getCause() != null ? e.getCause() : e;
+			log.error("Work item create failed: {}", cause.getMessage(), e);
 			return null;
 		}
 
@@ -360,7 +361,8 @@ public class WorkItemsCreationService {
 						addWorkItemToSprintInState(state, sprintNumber, subId);
 					}
 				} catch (Exception ignored) {
-					log.error(ignored.getMessage());
+					Throwable cause = ignored.getCause() != null ? ignored.getCause() : ignored;
+					log.error("Subtask create failed: {}", cause.getMessage(), ignored);
 				}
 			}
 		}
