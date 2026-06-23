@@ -132,7 +132,12 @@ public class PipelineWebhookEngine {
 		String tag = tags.isEmpty() ? "" : tags.get(0);
 		log.info("action=pickBuildTags | tag={}", tag.isEmpty() ? "<none>" : tag);
 
-		body.put("templateParameters", Map.of("mockScenario", scenario, "mockTag", tag));
+		Map<String, Object> templateParams = new HashMap<>();
+		templateParams.put("mockScenario", scenario);
+		if (!tag.isEmpty()) {
+			templateParams.put("mockTag", tag);
+		}
+		body.put("templateParameters", templateParams);
 
 		MockState.User user = identityProvider.next();
 		String pat = user.pat;
