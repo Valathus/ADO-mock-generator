@@ -588,6 +588,7 @@ public class RepoWebhookEngine {
 
 			Map<String, Object> body = new HashMap<>();
 			body.put("id", reviewer.id);
+			body.put("vote", pickReviewerVote(random));
 
 			if (random.nextInt(100) < 35) {
 				body.put("isRequired", true);
