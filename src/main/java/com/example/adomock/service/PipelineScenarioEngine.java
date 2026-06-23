@@ -213,6 +213,11 @@ public class PipelineScenarioEngine {
 			throw new RuntimeException("Failed to serialize build parameters", e);
 		}
 
+		List<String> tags = pickBuildTags(new Random());
+		if (!tags.isEmpty()) {
+			body.put("tags", tags);
+		}
+
 		String uri = "/" + project + "/_apis/build/builds?api-version=" + apiVersion;
 
 		JsonNode response = adoClient.post(pat, uri, body);
@@ -272,6 +277,17 @@ public class PipelineScenarioEngine {
 				+ "&bypassRules=true&suppressNotifications=true";
 
 		adoClient.patchJsonPatch(pat, uri, patch);
+	}
+
+	private static final String[] BUILD_TAGS = {
+		"automated", "regression", "ci-cd", "nightly", "smoke", "integration"
+	};
+
+	private List<String> pickBuildTags(Random random) {
+		int r = random.nextInt(100);
+		if (r < 10) return List.of();
+		if (r < 40) return List.of("manual");
+		return List.of(BUILD_TAGS[random.nextInt(BUILD_TAGS.length)]);
 	}
 
 	private Integer resolveBuildDefinitionId(MockState state) {

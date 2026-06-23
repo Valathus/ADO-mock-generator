@@ -1,6 +1,7 @@
 package com.example.adomock.service;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -129,6 +130,11 @@ public class PipelineWebhookEngine {
 			throw new RuntimeException("Failed to serialize parameters", e);
 		}
 
+		List<String> tags = pickBuildTags(random);
+		if (!tags.isEmpty()) {
+			body.put("tags", tags);
+		}
+
 		MockState.User user = identityProvider.next();
 		String pat = user.pat;
 
@@ -196,5 +202,16 @@ public class PipelineWebhookEngine {
 		} catch (Exception e) {
 			log.error("user={} | action=cancelBuild | error={}", user.username, e.getMessage(), e);
 		}
+	}
+
+	private static final String[] BUILD_TAGS = {
+		"automated", "regression", "ci-cd", "nightly", "smoke", "integration"
+	};
+
+	private List<String> pickBuildTags(ThreadLocalRandom random) {
+		int r = random.nextInt(100);
+		if (r < 10) return List.of();
+		if (r < 40) return List.of("manual");
+		return List.of(BUILD_TAGS[random.nextInt(BUILD_TAGS.length)]);
 	}
 }
