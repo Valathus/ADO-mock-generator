@@ -118,8 +118,6 @@ public class PipelineWebhookEngine {
 
 		Map<String, Object> definition = Map.of("id", definitionId);
 
-		Map<String, Object> parameters = Map.of("mockScenario", scenario);
-
 		Map<String, Object> body = new HashMap<>();
 		body.put("definition", definition);
 		body.put("sourceBranch", "refs/heads/" + branch);
@@ -131,9 +129,10 @@ public class PipelineWebhookEngine {
 		}
 
 		List<String> tags = pickBuildTags(random);
-		if (!tags.isEmpty()) {
-			body.put("tags", tags);
-		}
+		String tag = tags.isEmpty() ? "" : tags.get(0);
+		log.info("action=pickBuildTags | tag={}", tag.isEmpty() ? "<none>" : tag);
+
+		body.put("templateParameters", Map.of("mockScenario", scenario, "mockTag", tag));
 
 		MockState.User user = identityProvider.next();
 		String pat = user.pat;
@@ -157,7 +156,7 @@ public class PipelineWebhookEngine {
 			return;
 		}
 
-		log.info("user={} | action=queueBuild | buildId={} | scenario={} | branch={}", user.username, buildId, scenario, branch);
+		log.info("user={} | action=queueBuild | buildId={} | scenario={} | branch={} | tag={}", user.username, buildId, scenario, branch, tag.isEmpty() ? "<none>" : tag);
 	}
 
 	private void cancelRandomRunningBuild(ThreadLocalRandom random) {
