@@ -5,12 +5,15 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.zip.CRC32;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -40,6 +43,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 @Service
 public class WorkItemWebhookEngine {
 
+	private static final Logger log = LoggerFactory.getLogger(WorkItemWebhookEngine.class);
+
 	// 20% chance to CREATE a new work item instead of updating an existing one
 	private static final int CREATE_NEW_WORK_ITEM_PCT = 20;
 
@@ -52,6 +57,8 @@ public class WorkItemWebhookEngine {
 	private static final int ADD_LINK_PCT = 10;
 	private static final int SET_DUE_DATE_PCT = 5;
 	private static final int ADD_BLOCKED_BY_PCT = 5;
+
+	private static final int[] TASK_HOURS = { 2, 4, 4, 8, 8, 16 };
 
 	private final AdoRestClient adoClient;
 	private final AdoProperties properties;
@@ -96,10 +103,13 @@ public class WorkItemWebhookEngine {
 		int createPct = (createPctOverride >= 0 && createPctOverride <= 100) ? createPctOverride
 				: CREATE_NEW_WORK_ITEM_PCT;
 
-		if (random.nextInt(100) < createPct) {
+		int createRoll = random.nextInt(100);
+		if (createRoll < createPct) {
+			log.info("roll={} < createPct={} -> CREATE new work item", createRoll, createPct);
 			createWorkItemViaWebhook(state, pat, correlationId, random);
 			return;
 		}
+		log.debug("roll={} >= createPct={} -> UPDATE existing work item {}", createRoll, createPct, workItemId);
 
 		// If no workItemId provided, nothing to update
 		if (workItemId == null || workItemId.isBlank()) {
@@ -114,29 +124,37 @@ public class WorkItemWebhookEngine {
 
 		int threshold = 0;
 		if (roll < (threshold += CHANGE_STATE_PCT)) {
+			log.info("workItem={} roll={} -> CHANGE_STATE (bucket<{})", workItemId, roll, threshold);
 			changeState(state, workItemId, pat, patch, random);
 
 		} else if (roll < (threshold += CHANGE_ASSIGNEE_PCT)) {
+			log.info("workItem={} roll={} -> CHANGE_ASSIGNEE (bucket<{})", workItemId, roll, threshold);
 			changeAssignee(state, patch, random);
 
 		} else if (roll < (threshold += CARRYOVER_PCT)) {
+			log.info("workItem={} roll={} -> CARRYOVER (bucket<{})", workItemId, roll, threshold);
 			carryOverOnSprintClose(state, patch, random);
 
 		} else if (roll < (threshold += ADD_COMMENT_ONLY_PCT)) {
+			log.info("workItem={} roll={} -> ADD_COMMENT_ONLY (bucket<{})", workItemId, roll, threshold);
 			addCommentOnly(patch, correlationId);
 
 		} else if (roll < (threshold += ADD_TAG_PCT)) {
+			log.info("workItem={} roll={} -> ADD_TAG (bucket<{})", workItemId, roll, threshold);
 			addTag(state, workItemId, pat, patch, random, correlationId);
 
 		} else if (roll < (threshold += SET_DUE_DATE_PCT)) {
+			log.info("workItem={} roll={} -> SET_DUE_DATE (bucket<{})", workItemId, roll, threshold);
 			// setDueDate handles both "add if missing" and "change if present" internally
 			setDueDate(state, workItemId, pat, patch, random);
 			dueDateHandled = true;
 
 		} else if (roll < (threshold += ADD_BLOCKED_BY_PCT)) {
+			log.info("workItem={} roll={} -> ADD_BLOCKED_BY (bucket<{})", workItemId, roll, threshold);
 			addBlockedByLink(state, workItemId, patch, random);
 
 		} else {
+			log.info("workItem={} roll={} -> ADD_LINK (bucket>={})", workItemId, roll, threshold);
 			addLink(state, workItemId, patch, random);
 		}
 
@@ -187,12 +205,20 @@ public class WorkItemWebhookEngine {
 				"Created via webhook simulation | " + correlationId));
 
 		// 60% of new work items get a due date within the next 30-90 days
-		if (random.nextInt(100) < 60) {
+		int dueDateRoll = random.nextInt(100);
+		if (dueDateRoll < 60) {
 			int daysAhead = 30 + random.nextInt(61);
 			LocalDate dueDate = LocalDate.now().plusDays(daysAhead);
 			String dueDateStr = dueDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "T00:00:00.000Z";
 			patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.DueDate", "value", dueDateStr));
+			log.info("create: roll={} < 60 -> DueDate={}", dueDateRoll, dueDateStr);
+		} else {
+			log.info("create: roll={} >= 60 -> no DueDate set", dueDateRoll);
 		}
+
+		int hours = TASK_HOURS[random.nextInt(TASK_HOURS.length)];
+		patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.OriginalEstimate", "value", hours));
+		log.info("create: OriginalEstimate={}h (pool={})", hours, Arrays.toString(TASK_HOURS));
 
 		// Use common type name used in your system ("Task" is always safe-ish). If you
 		// want, switch to "$Task" literal.
@@ -209,9 +235,12 @@ public class WorkItemWebhookEngine {
 				// path
 				addCreatedWorkItemToBestSprintBucket(state, id);
 				repository.save(state);
+				log.info("create: work item {} created (type={}, iteration={}, assignee={})", id, workItemType,
+						iterationPath, assignedTo);
 			}
-		} catch (Exception ignored) {
+		} catch (Exception ex) {
 			// Self-healing / best-effort: creation failure just means no event this time.
+			log.warn("create: work item creation failed: {}", ex.getMessage());
 		}
 	}
 
@@ -283,6 +312,7 @@ public class WorkItemWebhookEngine {
 		patch.add(Map.of("op", "add", "path", "/fields/System.AssignedTo", "value", user.username));
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value",
 				"Assignee changed via webhook simulation"));
+		log.info("changeAssignee: assignedTo={}", user.username);
 	}
 
 	private void carryOverOnSprintClose(MockState state, List<Map<String, Object>> patch, Random random) {
@@ -293,7 +323,9 @@ public class WorkItemWebhookEngine {
 		}
 
 		// 10% probability
-		if (random.nextInt(100) >= 10) {
+		int carryRoll = random.nextInt(100);
+		if (carryRoll >= 10) {
+			log.debug("carryOver: roll={} >= 10 -> skipped", carryRoll);
 			return;
 		}
 
@@ -313,6 +345,7 @@ public class WorkItemWebhookEngine {
 
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value",
 				"Carry-over to Sprint " + nextSprint + " during sprint close"));
+		log.info("carryOver: roll={} -> carried to sprint {} ({})", carryRoll, nextSprint, iterationPath);
 	}
 
 	private boolean isSprintCloseWindow(MockState state) {
@@ -351,6 +384,7 @@ public class WorkItemWebhookEngine {
 		String merged = mergeTags(existingTags, List.of(tag, "mockRun:" + correlationId, "webhook"));
 		patch.add(Map.of("op", "add", "path", "/fields/System.Tags", "value", merged));
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value", "Tag changed via webhook simulation"));
+		log.info("addTag: tag={}", tag);
 	}
 
 	private void ensureDueDateIfMissing(MockState state, String workItemId, String pat,
@@ -369,6 +403,7 @@ public class WorkItemWebhookEngine {
 			LocalDate dueDate = LocalDate.now().plusDays(daysAhead);
 			String formatted = dueDate.format(DateTimeFormatter.ISO_LOCAL_DATE) + "T00:00:00.000Z";
 			patch.add(Map.of("op", "add", "path", "/fields/Microsoft.VSTS.Scheduling.DueDate", "value", formatted));
+			log.info("ensureDueDateIfMissing: backfilled DueDate={} on workItem={}", formatted, workItemId);
 		} catch (Exception ignored) {
 			// best-effort: skip if GET fails
 		}
@@ -398,6 +433,7 @@ public class WorkItemWebhookEngine {
 		String action = hasDueDate ? "changed to" : "added as";
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value",
 				"Due date " + action + " " + dueDate + " via webhook simulation"));
+		log.info("setDueDate: {} DueDate={} on workItem={}", action, formatted, workItemId);
 	}
 
 	private void addBlockedByLink(MockState state, String workItemId, List<Map<String, Object>> patch, Random random) {
@@ -420,6 +456,7 @@ public class WorkItemWebhookEngine {
 
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value",
 				label + " link added to work item " + other + " via webhook simulation"));
+		log.info("addBlockedByLink: {} link -> workItem={}", label, other);
 	}
 
 	private void addLink(MockState state, String workItemId, List<Map<String, Object>> patch, Random random) {
@@ -442,6 +479,7 @@ public class WorkItemWebhookEngine {
 
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value",
 				"Related link added via webhook simulation"));
+		log.info("addLink: Related link -> workItem={}", other);
 	}
 
 	private void changeState(MockState state, String workItemId, String pat, List<Map<String, Object>> patch,
@@ -510,6 +548,7 @@ public class WorkItemWebhookEngine {
 		patch.add(Map.of("op", "add", "path", "/fields/System.State", "value", newState));
 		patch.add(Map.of("op", "add", "path", "/fields/System.History", "value",
 				"State changed via webhook simulation | " + Instant.now().toString()));
+		log.info("changeState: {} -> {} (workItem={})", currentState, newState, workItemId);
 	}
 
 	/*
